@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	"bosun.org/metadata"
+)
 
 var cbbTimeFormat = "20060102150405"
 
@@ -10,6 +14,12 @@ func cbbTimeToTime(cbbTime string) (time.Time, error) {
 
 func timeToCbbTime(thisTime time.Time) string {
 	return thisTime.Format(cbbTimeFormat)
+}
+
+type standardMetrics struct {
+	Rate metadata.RateType
+	Unit metadata.Unit
+	Desc string
 }
 
 var cbbJobStatuses = []string{
