@@ -20,7 +20,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-//CBProgramData Path to the ProgData directory for Cloudberry, typically C:\ProgramData\CloudBerry Backup Enterprise Edition
+// CBProgramData is the path to the ProgData directory for Cloudberry, typically C:\ProgramData\CloudBerry Backup Enterprise Edition
 var CBProgramData = "C:\\ProgramData\\CloudBerry Backup Enterprise Edition"
 
 var (
@@ -37,7 +37,8 @@ var metaData = map[string]standardMetrics{
 	"cloudberry.job.files_uploaded":        {metadata.Gauge, metadata.Count, "The number of files uploaded in the last job run."},
 	"cloudberry.job.job_duration":          {metadata.Gauge, metadata.Second, "The last reported duration of the job."},
 	"cloudberry.job.time_since_last_start": {metadata.Gauge, metadata.Second, "Time since the job last started."},
-	"cloudberry.job.size":                  {metadata.Gauge, metadata.Bytes, "The size reported by the last run of the job. Total size is the backup source that was scanned. Uploaded is the size of the data that was actually backed up."},
+	"cloudberry.job.size_uploaded":         {metadata.Gauge, metadata.Bytes, "The size of the data that was uploaded as reported by the last run of the job."},
+	"cloudberry.job.size_total":            {metadata.Gauge, metadata.Bytes, "The total size of the last backup job (i.e. not just what was uploaded)."},
 	"cloudberry.job.count":                 {metadata.Gauge, metadata.Count, "Number of backup jobs registered."},
 }
 
@@ -78,7 +79,6 @@ func main() {
 	//about that run, such as the actions taken during the run (backed up file, purged file, etc)
 	for _, x := range cbbPlansBackups {
 		var cbbSessionHistory cbbSessionHistoryRow //Holds the Session History (which is a record of each run of a backup job)
-		var cbbHistory cbbHistoryRow               //Holds a History row (which is the list of files that were backed up during a session)
 		var sqlStatement string
 
 		//Get the most recent session history record for this backup plan
@@ -102,30 +102,36 @@ func main() {
 				bosunDataPoint("cloudberry.job.files_uploaded", cbbSessionHistory.UploadedCount, opentsdb.TagSet{"job": x.Name})
 				bosunDataPoint("cloudberry.job.job_duration", timeTaken.Seconds(), opentsdb.TagSet{"job": x.Name})
 				bosunDataPoint("cloudberry.job.time_since_last_start", time.Since(timeStarted).Seconds(), opentsdb.TagSet{"job": x.Name})
-				bosunDataPoint("cloudberry.job.size", cbbSessionHistory.UploadedSize, opentsdb.TagSet{"job": x.Name, "type": "uploaded"})
-				bosunDataPoint("cloudberry.job.size", cbbSessionHistory.TotalSize, opentsdb.TagSet{"job": x.Name, "type": "total"})
+				bosunDataPoint("cloudberry.job.size_uploaded", cbbSessionHistory.UploadedSize, opentsdb.TagSet{"job": x.Name})
+				bosunDataPoint("cloudberry.job.size_total", cbbSessionHistory.TotalSize, opentsdb.TagSet{"job": x.Name})
 
-				//We have the basic details from the last run, now we can query the actual file operations that were undertaken during the run
-				sqlStatement = fmt.Sprintf(`SELECT %s FROM history WHERE plan_id = '%s' AND session_id = %v ORDER BY date_finished_utc ASC`, sqlstruct.Columns(cbbHistory), cbbSessionHistory.PlanID, cbbSessionHistory.ID)
-				rows, err := db.Query(sqlStatement, sqlstruct.Columns(cbbHistoryRow{}))
-				for rows.Next() {
-					err = sqlstruct.Scan(&cbbHistory, rows)
-					if err != nil {
-						fmt.Fprintln(os.Stderr, err) //If we couldn't load the row into our object, throw this to stderr so that scollector can log the error
-					} else {
-						//The Operation field in the database has a value of 0 for purged, but this doesn't really work very well in Bosun, so we change it to a -1
-						//when logging it so that it clearly shows up as a purge in the stats
-						opToSend := cbbHistory.Operation
-						if opToSend == 0 {
-							opToSend = -1
-						}
+				//The following metrics are commented out for the time being, until we have nice regex matching rules in the config
+				//Also, the make the output so big that scollector overruns the buffer scanner.
 
-						//We don't need to log the full path to the file in Bosun, so we're just going to log the file name
-						_, fileName := filepath.Split(cbbHistory.LocalPath)
-						bosunDataPoint("cloudberry.job.files", opToSend, opentsdb.TagSet{"job": x.Name, "file": fileName})
-					}
-				}
+				/*
+					var cbbHistory cbbHistoryRow               //Holds a History row (which is the list of files that were backed up during a session)
 
+							//We have the basic details from the last run, now we can query the actual file operations that were undertaken during the run
+							sqlStatement = fmt.Sprintf(`SELECT %s FROM history WHERE plan_id = '%s' AND session_id = %v ORDER BY date_finished_utc ASC`, sqlstruct.Columns(cbbHistory), cbbSessionHistory.PlanID, cbbSessionHistory.ID)
+							rows, err := db.Query(sqlStatement, sqlstruct.Columns(cbbHistoryRow{}))
+							for rows.Next() {
+								err = sqlstruct.Scan(&cbbHistory, rows)
+								if err != nil {
+									fmt.Fprintln(os.Stderr, err) //If we couldn't load the row into our object, throw this to stderr so that scollector can log the error
+								} else {
+									//The Operation field in the database has a value of 0 for purged, but this doesn't really work very well in Bosun, so we change it to a -1
+									//when logging it so that it clearly shows up as a purge in the stats
+									opToSend := cbbHistory.Operation
+									if opToSend == 0 {
+										opToSend = -1
+									}
+
+									//We don't need to log the full path to the file in Bosun, so we're just going to log the file name
+									_, fileName := filepath.Split(cbbHistory.LocalPath)
+									bosunDataPoint("cloudberry.job.files", opToSend, opentsdb.TagSet{"job": x.Name, "file": fileName})
+								}
+							}
+				*/
 			}
 		}
 	}
